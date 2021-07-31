@@ -4,7 +4,7 @@
  */
 
 //TODO should i use TweetNaCl for crypto
-class ZeroProtocol {
+export default class ZeroProtocol {
     constructor() {
         //Check Support
         var cryptoObject = crypto.subtle;
