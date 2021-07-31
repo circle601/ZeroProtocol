@@ -4,7 +4,7 @@
  */
 
 //TODO should i use TweetNaCl for crypto
-class ZeroProtocol {
+export default class ZeroProtocol {
     constructor() {
         //Check Support
         var cryptoObject = crypto.subtle;
@@ -208,7 +208,8 @@ class ZeroProtocol {
                 return false;
             }
             return true;
-        }).catch((err) => {
+      }).catch((err) => {
+                console.log(err);
                 this.LogOut();
                 deferred.reject(false);
         });
@@ -374,6 +375,7 @@ class ZeroProtocol {
         let Options = {
             method: Method,
             cache: 'no-cache',
+            credentials: "same-origin",
             headers: {
                 'Accept': 'application/json',
                 'Content-Type': 'application/json'
@@ -381,7 +383,6 @@ class ZeroProtocol {
             dataType: "json",
             redirect: 'error'
         };
-
 
         let URL = this.ConnectionConfig.APIPath + Address;
         if (Method == "POST" && Data) {
@@ -393,7 +394,7 @@ class ZeroProtocol {
 
 
         var resultPromice = fetch(URL, Options).catch((error) => {
-            console.error('Error:', error);
+            console.error('Error:', URL +  error );
         }).then((Result) => {
             if (Result.status === 403) {
                 this.LogOut();
@@ -728,7 +729,7 @@ class ZeroProtocol {
             }
         }
 
-        return this.AjaxCall("/api/feed", "GET", Query, (response) => {
+        return this.AjaxCall("/api/feed", "GET", Query).then( (response) => {
             var Data = response;
             return Data;
             //todo should do some validation here
