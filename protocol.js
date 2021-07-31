@@ -10,20 +10,12 @@ class ZeroProtocol {
         var cryptoObject = crypto.subtle;
 
         if (!cryptoObject) {
-            alert("Web Crypto is not supported")
+            throw "Web Crypto is not supported";
         }
 
         // register the main thread to send entropy or a Web Worker to receive
         // entropy on demand from the main thread
         forge.random.registerWorker(self);
-
-        //Collect entropy from the mouse position
-        jQuery()
-            .mousemove((e) => {
-                forge.random.collectInt(e.clientX, 16);
-                forge.random.collectInt(e.clientY, 16);
-            });
-
     }
 
     //used to check compatibility with server version
@@ -141,7 +133,6 @@ class ZeroProtocol {
 
         if (!this.Cryptostate.ContentPublicKey) {
             if (typeof Storage === "undefined") return false;
-            var deferred = $.Deferred();
 
             var InfoText = localStorage.ZeroAccount;
             if (!InfoText) return false;
@@ -162,7 +153,7 @@ class ZeroProtocol {
     LoadPersistant() {
 
         if (typeof Storage === "undefined") return ErrorPromice(false);
-        var deferred = $.Deferred();
+  
 
         if (this.CrossDomain) {
             this.CookieSession = localStorage.getItem('ZeroCookieSession');
@@ -171,7 +162,7 @@ class ZeroProtocol {
         var InfoText = localStorage.getItem('ZeroAccount');
         if (!InfoText) return ErrorPromice(false);
 
-        this.AjaxCall("/api/StorageKey", "GET", null).then(  (response) => {
+      return  this.AjaxCall("/api/StorageKey", "GET", null).then(  (response) => {
             try {
 
 
@@ -179,7 +170,6 @@ class ZeroProtocol {
                 var DecryptedData = this.DecryptBlockKey(InfoText, Key);
                 if (!DecryptedData) {
                     this.ClearPersistant();
-                    deferred.reject(false);
                     return false;
                 }
 
@@ -187,19 +177,16 @@ class ZeroProtocol {
 
                 if (typeof (ZeroInfo) === "undefined") {
                     this.ClearPersistant();
-                    deferred.reject(false);
                     return false;
                 }
 
                 if (!ZeroInfo.ContentPrivateKey || !ZeroInfo.ContentPublicKey) {
                     this.ClearPersistant();
-                    deferred.reject(false);
                     return false;
                 }
 
                 if (!ZeroInfo.PublicPublicKey || !ZeroInfo.PublicPrivateKey) {
                     this.ClearPersistant();
-                    deferred.reject(false);
                     return false;
                 }
 
@@ -208,7 +195,6 @@ class ZeroProtocol {
                 if (!this.LoadCryptoState()) {
                     this.AccountInfo = {};
                     this.ClearPersistant();
-                    deferred.reject(false);
                     return false;
                 }
 
@@ -218,24 +204,15 @@ class ZeroProtocol {
                 this.WatchSessionStorage();
             } catch (e) {
                 this.LogOut();
-                deferred.reject(false);
                 console.error(e, e.stack);
                 return false;
             }
-
-            try {
-                deferred.resolve(true);
-            } catch (e) {
-                console.error(e, e.stack);
-            }
             return true;
-        })
-            .catch((err) => {
+        }).catch((err) => {
                 this.LogOut();
                 deferred.reject(false);
-            });
+        });
 
-        return deferred;
     };
 
     /**
@@ -1623,9 +1600,7 @@ class ZeroProtocol {
  * @returns {promise} a Failed promise
  */
 function ErrorPromice(Message) {
-    return jQuery.Deferred()
-        .reject(JSON.stringify(Message))
-        .promise();
+    Promise.reject(Message);
 }
 
 /**
@@ -1634,9 +1609,7 @@ function ErrorPromice(Message) {
  * @returns {promise} a Finished promise
  */
 function FinishedPromice(Message) {
-    return jQuery.Deferred()
-        .resolve(Message)
-        .promise();
+    return Promise.resolve(Message);
 }
 
 
@@ -1664,6 +1637,4 @@ function getCookie(name) {
     }
     return null;
 }
-
-
 
