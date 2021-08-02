@@ -1,7 +1,6 @@
 ﻿import * as forge from 'node-forge';
 import { sha3_256} from 'js-sha3';
 
-
 /**
  * @fileOverview Protocol to communicate with server
  * @version 1.0.0
@@ -24,6 +23,7 @@ export default class ZeroProtocol {
 
     //used to check compatibility with server version
     VersionString = "1.0.0";
+    VersionString = "1.0.1";
 
     ConnectionConfig = {
         APIPath: "",
@@ -106,7 +106,6 @@ export default class ZeroProtocol {
             KeyLength = 16;
         }
 
-        var salt = "";
         var AccountKey = forge.pkcs5.pbkdf2(Password, salt, numIterations, KeyLength);
         return AccountKey;
     };
@@ -249,7 +248,6 @@ export default class ZeroProtocol {
             PublicPrivateKey: ""
         };
 
-        var rsa = forge.pki.rsa;
         var pki = forge.pki;
         var asn1 = forge.asn1;
 
@@ -410,7 +408,7 @@ export default class ZeroProtocol {
         if (Method == "POST" && Data) {
             Options.body = JSON.stringify(Data);
         } else if (Method == "GET" && Data) {
-            URL = URL + new URLSearchParams(Data);
+            URL = URL + "?" + new URLSearchParams(Data);
         }
 
 
@@ -639,12 +637,6 @@ export default class ZeroProtocol {
 
         return new Promise((resolve, reject) => {
 
-
-
-
-            var rsa = forge.pki.rsa;
-
-
             var Result = {};
             Result.SecurityLevel = SecurityLevel;
             var SecurityToken;
@@ -729,7 +721,6 @@ export default class ZeroProtocol {
         }
 
         try {
-            var rsa = forge.pki.rsa;
 
             var Result = {
                 PostType: PostType,
@@ -1096,7 +1087,8 @@ export default class ZeroProtocol {
                 var Result = this.EncryptBlock(Data, Key);
 
                 if (SecurityLevel < 2) {
-                    Result.Signature = this.SighHash(Result);
+                    //Result.Signature = this.SighHash(Result);
+                    //not implimented yet
                 }
                 return Result;
 
@@ -1293,7 +1285,6 @@ export default class ZeroProtocol {
     PersonFromResponce(response) {
 
         const pki = forge.pki;
-        const rsa = forge.pki.rsa;
         const asn1 = forge.asn1;
 
         if (!response) return null;
@@ -1360,7 +1351,6 @@ export default class ZeroProtocol {
 
 
     generateRequest(UserID, Text) {
-        const rsa = forge.pki.rsa;
         const pki = forge.pki;
         const asn1 = forge.asn1;
 
@@ -1410,9 +1400,6 @@ export default class ZeroProtocol {
 
 
     RecieveRequest(Request) {
-        const rsa = forge.pki.rsa;
-        const pki = forge.pki;
-        const asn1 = forge.asn1;
 
         try {
 
@@ -1587,13 +1574,13 @@ export default class ZeroProtocol {
 
                 try {
                     if (!response) {
-                        Zero.alert("invalid status");
+                        this.alert("invalid status");
                         return;
                     }
 
                     response = response[0];
                 } catch (err) {
-                    Zero.alert("invalid status:" + err);
+                    this.alert("invalid status:" + err);
                     return;
                 }
                 if (response.AcceptedRequests > 0) {
