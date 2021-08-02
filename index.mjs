@@ -33,8 +33,6 @@ export default class ZeroProtocol {
 
     //Callback Functions_______________________________________
     LogOutCallback = null;
-    ReadyEvent = function () { };
-    Ready = false;
     //Function called when unable to login
     AuthFail = null;
     RefreshUserPage = null;
@@ -67,16 +65,6 @@ export default class ZeroProtocol {
         ContentPrivateKey: "",
         PublicPublicKey: "",
         PublicPrivateKey: ""
-    };
-
-    /**
-     * Initialises Zero and calls this.ReadyEvent(); when finished, Sets this.Ready
-     */
-    Init() {
-        this.Ready = true;
-        if (this.ReadyEvent) {
-            this.ReadyEvent();
-        }
     };
 
     SetReadyEvent(Callback) {
@@ -133,11 +121,6 @@ export default class ZeroProtocol {
      * @returns {boolean} credentials are valid
      */
     Persisting() {
-        //todo need to check if the user has logged out and back in in a diffrent tab
-        if (!this.Ready) {
-            this.Alert("not ready");
-            return false;
-        }
 
         if (!this.Cryptostate.ContentPublicKey) {
             if (typeof Storage === "undefined") return false;
@@ -301,9 +284,6 @@ export default class ZeroProtocol {
      */
     Persist() {
 
-        if (!this.Ready) {
-            return false;
-        }
         //**todo make cookie domian spesific
         if (typeof (Storage) !== "undefined") {
 
@@ -716,7 +696,7 @@ export default class ZeroProtocol {
 
 
         if (!this.SupportedTypes.includes(PostType)) {
-            return Promise.reject("Not Ready");
+            return Promise.reject("Not supproted");
         }
 
         try {
