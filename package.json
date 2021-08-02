@@ -1,6 +1,6 @@
 {
   "name": "zero-protocol",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "dependencies": {
     "js-sha3": "^0.8.0",
     "node-forge": "^0.10.0"

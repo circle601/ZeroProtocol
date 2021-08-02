@@ -3,7 +3,7 @@ import { sha3_256} from 'js-sha3';
 
 /**
  * @fileOverview Protocol to communicate with server
- * @version 1.0.3
+ * @version 1.0.4
  */
 
 //TODO should i use TweetNaCl for crypto
@@ -22,7 +22,7 @@ export default class ZeroProtocol {
     }
 
     //used to check compatibility with server version
-    VersionString = "1.0.3";
+    VersionString = "1.0.4";
 
     ConnectionConfig = {
         APIPath: "",
@@ -92,7 +92,7 @@ export default class ZeroProtocol {
         if (numIterations == 10) { //todo remove this
             KeyLength = 16;
         }
-
+ 	let salt = "";
         var AccountKey = forge.pkcs5.pbkdf2(Password, salt, numIterations, KeyLength);
         return AccountKey;
     };
