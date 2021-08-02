@@ -26,6 +26,8 @@ export default class ZeroProtocol {
         UseCookieSession: true,
     };
 
+    MinKeyIterations = 5000;
+
     //Callback Functions_______________________________________
     LogOutCallback = null;
     ReadyEvent = function () { };
@@ -81,23 +83,26 @@ export default class ZeroProtocol {
         };
     };
 
-
-    // Secures the local key by encrypting it with the Key CSRF Token
-    SecureKey(Key, KeyCSRFToken) {
-        //todo
-    };
-
-
-
     /**
      *caculates the Key used to decrypt the account private keys
      * @param {string} Password The users password
+     * @param {string} numIterations  The number of iterations run to generate the key
      * @returns {string} A key derrived from the password
      */
-    KeyDerivation(Password) {
+    KeyDerivation(Password, numIterations) {
+        if (numIterations < this.MinKeyIterations) {
+            this.Alert("insecure key generation");
+        }
+
+        var KeyLength = 16; //todo check if this should be 128
+
+        //Use this to adjust key length when versions change
+        if (numIterations == 10) { //todo remove this
+            KeyLength = 16;
+        }
+
         var salt = "";
-        var numIterations = 10;
-        var AccountKey = forge.pkcs5.pbkdf2(Password, salt, numIterations, 16);
+        var AccountKey = forge.pkcs5.pbkdf2(Password, salt, numIterations, KeyLength);
         return AccountKey;
     };
 
@@ -152,67 +157,69 @@ export default class ZeroProtocol {
      */
     LoadPersistant() {
 
-        if (typeof Storage === "undefined") return ErrorPromice(false);
-  
+        if (typeof Storage === "undefined") return Promise.reject(false);
+
 
         if (this.CrossDomain) {
             this.CookieSession = localStorage.getItem('ZeroCookieSession');
         }
 
         var InfoText = localStorage.getItem('ZeroAccount');
-        if (!InfoText) return ErrorPromice(false);
+        if (!InfoText) return Promise.reject(false);
 
-      return  this.AjaxCall("/api/StorageKey", "GET", null).then(  (response) => {
-            try {
+        return this.AjaxCall("/api/StorageKey", "GET", null)
+            .then((response) => {
+                try {
 
 
-                var Key = forge.util.decode64(response.StorageKey + "") + "";
-                var DecryptedData = this.DecryptBlockKey(InfoText, Key);
-                if (!DecryptedData) {
-                    this.ClearPersistant();
+                    var Key = forge.util.decode64(response.StorageKey + "") + "";
+                    var DecryptedData = this.DecryptBlockKey(InfoText, Key);
+                    if (!DecryptedData) {
+                        this.ClearPersistant();
+                        return false;
+                    }
+
+                    var ZeroInfo = DecryptedData;
+
+                    if (typeof (ZeroInfo) === "undefined") {
+                        this.ClearPersistant();
+                        return false;
+                    }
+
+                    if (!ZeroInfo.ContentPrivateKey || !ZeroInfo.ContentPublicKey) {
+                        this.ClearPersistant();
+                        return false;
+                    }
+
+                    if (!ZeroInfo.PublicPublicKey || !ZeroInfo.PublicPrivateKey) {
+                        this.ClearPersistant();
+                        return false;
+                    }
+
+                    this.AccountInfo = ZeroInfo;
+
+                    if (!this.LoadCryptoState()) {
+                        this.AccountInfo = {};
+                        this.ClearPersistant();
+                        return false;
+                    }
+
+                    if (document.cookie.indexOf("ZeroPersisting=") === -1) {
+                        document.cookie = "ZeroPersisting=True";
+                    }
+                    this.WatchSessionStorage();
+                } catch (e) {
+                    this.LogOut();
+                    console.error(e, e.stack);
                     return false;
                 }
-
-                var ZeroInfo = DecryptedData;
-
-                if (typeof (ZeroInfo) === "undefined") {
-                    this.ClearPersistant();
-                    return false;
-                }
-
-                if (!ZeroInfo.ContentPrivateKey || !ZeroInfo.ContentPublicKey) {
-                    this.ClearPersistant();
-                    return false;
-                }
-
-                if (!ZeroInfo.PublicPublicKey || !ZeroInfo.PublicPrivateKey) {
-                    this.ClearPersistant();
-                    return false;
-                }
-
-                this.AccountInfo = ZeroInfo;
-
-                if (!this.LoadCryptoState()) {
-                    this.AccountInfo = {};
-                    this.ClearPersistant();
-                    return false;
-                }
-
-                if (document.cookie.indexOf("ZeroPersisting=") === -1) {
-                    document.cookie = "ZeroPersisting=True";
-                }
-                this.WatchSessionStorage();
-            } catch (e) {
-                this.LogOut();
-                console.error(e, e.stack);
-                return false;
-            }
-            return true;
-      }).catch((err) => {
+                return true;
+            })
+            .catch((err) => {
                 console.log(err);
                 this.LogOut();
                 deferred.reject(false);
-        });
+            });
 
     };
 
@@ -363,7 +370,6 @@ export default class ZeroProtocol {
      * @param {string} Address url
      * @param {string} Method http method
      * @param {Object} Data object to sent
-     * @param {Function} Callback function to call on success
      * @returns {promice} promice of ajax
      */
     AjaxCall(Address, Method, Data) {
@@ -387,43 +393,49 @@ export default class ZeroProtocol {
         let URL = this.ConnectionConfig.APIPath + Address;
         if (Method == "POST" && Data) {
             Options.body = JSON.stringify(Data);
-        }else if (Method == "GET" && Data) {
+        } else if (Method == "GET" && Data) {
             URL = URL + new URLSearchParams(Data);
         }
 
 
 
-        var resultPromice = fetch(URL, Options).catch((error) => {
-            console.error('Error:', URL +  error );
-        }).then((Result) => {
-            if (Result.status === 403) {
-                this.LogOut();
-                throw Error("not logged in");
-            }
+        var resultPromice = fetch(URL, Options)
+            .catch((error) => {
+                console.error('Error:', URL + error);
+            })
+            .then((Result) => {
+                if (Result.status === 403) {
+                    this.LogOut();
+                    throw Error("not logged in");
+                }
 
-            if (!Result.ok) {
-                throw Error(Result.status);
-            }
-            return Result.json();
-            
-        });
+                if (!Result.ok) {
+                    throw Error(Result.status);
+                }
+                return Result.json();
+
+            });
 
         return resultPromice;
-        
+
     };
 
-
+    /**
+     * Login to ZER0
+     * @param {string} Username The users username or email
+     * @param {string} Password The password
+     * @returns {promice} promice of ajax returns 
+     */
     Login(Username, Password) {
 
         if (Username === null || Username.length === 0 || Password === null || Password.length === 0) {
-            return ErrorPromice("Missing infomation");
+            return Promise.reject("Missing infomation");
         }
 
         this.StopWatch();
         this.Cryptostate.StorageKey = forge.random.getBytesSync(16);
 
         const UsernameHash = sha3_256(Username);
-        const AccountKey = this.KeyDerivation(Password);
         const Hash = this.LoginHash(Password);
         var LoginData = {
             'Username': UsernameHash,
@@ -431,65 +443,83 @@ export default class ZeroProtocol {
             StorageKey: forge.util.encode64(this.Cryptostate.StorageKey)
         };
 
-        return this.AjaxCall("/api/login", "POST", LoginData).then( (response) => {
-            var Data = response;
-            if (Data.AccountData === undefined) {
-                this.state.Waiting = false;
-                throw "Unable to get account data";
-            }
-            var AccountData = new String(Data.AccountData);
-            //todo possibly need to have some form of error checking
+        return this.AjaxCall("/api/login", "POST", LoginData)
+            .then((response) => {
+                var Data = response;
+                if (Data.AccountData === undefined) {
+                    this.state.Waiting = false;
+                    throw "Unable to get account data";
+                }
+                var AccountData = new String(Data.AccountData);
+                //todo possibly need to have some form of error checking
 
-            var Parts = AccountData.split("*");
+                var Parts = AccountData.split("*");
 
-            var IV = forge.util.decode64(Parts[0]);
-            var encryptedData = forge.util.decode64(Parts[1]);
+                var IV = forge.util.decode64(Parts[0]);
+                var encryptedData = forge.util.decode64(Parts[1]);
+                var KeyIterations = 10;
+                if (Parts.length > 2) {
+                    KeyIterations = Parts[2]
+                } else {
+                    KeyIterations = 10;
+                }
+                var encryptedData = forge.util.decode64(Parts[1]);
+                const AccountKey = this.KeyDerivation(Password, KeyIterations);
 
-            var decipher = forge.aes.createDecryptionCipher(AccountKey, 'CBC');
-            decipher.start(IV);
-            var buffer = forge.util.createBuffer(encryptedData);
-            decipher.update(buffer);
-            decipher.finish();
-            var data = decipher.output.data;
-            this.AccountInfo = JSON.parse(data);
-            this.AccountInfo.AccountID = Data.AccountID;
-            this.AccountInfo.PublicPublicKey = Data.PublicKey;
-        });
+                var decipher = forge.aes.createDecryptionCipher(AccountKey, 'CBC');
+                decipher.start(IV);
+                var buffer = forge.util.createBuffer(encryptedData);
+                decipher.update(buffer);
+                decipher.finish();
+                var data = decipher.output.data;
+                this.AccountInfo = JSON.parse(data);
+                this.AccountInfo.AccountID = Data.AccountID;
+                this.AccountInfo.PublicPublicKey = Data.PublicKey;
+                return true;
+            });
 
     };
 
 
-
-    Create(Username, Password, PublicName, captcha) {
+    /**
+     * Create a new account
+     * @param {string} Username The users username or email
+     * @param {string} Password The password
+     * @param {boolean} PublicName Should the public name be displayed
+     * @returns {promice} promice of ajax returns
+     */
+    Create(Username, Password, PublicName, Options) {
 
         if (!Username || !Password) {
-            return ErrorPromice("Missing infomation");
+            return Promise.reject("Missing infomation");
         }
-
+        let captcha = VersionString;
         this.StopWatch();
         Username = Username + "";
         Password = Password + "";
 
         if (Username === null || Username.length === 0 || Password === null || Password.length === 0 || captcha === null || captcha.length === 0) {
-            return ErrorPromice("Missing infomation");
+            return Promise.reject("Missing infomation");
         }
 
         if (PublicName) {
             PublicName = PublicName + "";
             if (PublicName.lenght > 12) {
-                return ErrorPromice("Public name is too long");
+                return Promise.reject("Public name is too long");
             }
         }
-        var deferred = $.Deferred();
-
+        var deferred = new Promise();
+        var KeyIteration = this.MinKeyIterations;
         try {
             var rsa = forge.pki.rsa;
             var pki = forge.pki;
             var asn1 = forge.asn1;
 
+            
+              
             var iv = forge.random.getBytesSync(16);
             var salt = "";
-            var AccountKey = this.KeyDerivation(Password);
+            var AccountKey = this.KeyDerivation(Password, KeyIteration);
 
         } catch (err) {
             console.log(err);
@@ -543,7 +573,7 @@ export default class ZeroProtocol {
                     cipher.finish();
                     var encrypted = cipher.output;
 
-                    var AccountData = forge.util.encode64(iv) + "*" + forge.util.encode64(encrypted.getBytes());
+                    var AccountData = forge.util.encode64(iv) + "*" + forge.util.encode64(encrypted.getBytes()) + "*" + KeyIteration.toString(16);
 
                     var UsernameHash = sha3_256(Username);
 
@@ -565,10 +595,11 @@ export default class ZeroProtocol {
 
 
                 //todo this
-                    this.AjaxCall("/api/create", "POST", Submitdata).then( (response) => {
-                    deferred.resolve();
-                })
-                        .catch((err) => {
+                this.AjaxCall("/api/create", "POST", Submitdata)
+                    .then((response) => {
+                        deferred.resolve();
+                    })
+                    .catch((err) => {
                         deferred.reject(err);
                     });
 
@@ -580,10 +611,16 @@ export default class ZeroProtocol {
 
 
 
-
+/**
+* Create a non post object, eg chat image message
+* @param {Object} Object The object to be stored, used the same format as a post
+* @param {int} SecurityLevel the security level of the object, same as the post
+* @param {string} UseSecurityToken An optional key used to encrypt the data
+* @returns {promice} promice of ajax returns
+*/
     StoreObject(Object, SecurityLevel, UseSecurityToken) {
 
-        var deferred = $.Deferred();
+        var deferred = new Promise();
 
         try {
 
@@ -631,22 +668,23 @@ export default class ZeroProtocol {
             Result.date = d.getUTCDate();
 
         } catch (err) {
-            return ErrorPromice(err);
+            return Promise.reject(err);
         }
-        this.AjaxCall("/api/object", "POST", Result).then( (response) => {
-            if (!response || !response.ID) deferred.reject("missing responce");
-            if (SecurityToken) {
-                deferred.resolve({
-                    ID: response.ID,
-                    Token: SecurityToken
-                });
-            } else {
-                deferred.resolve(response.ID);
-                SecurityToken
-            }
+        this.AjaxCall("/api/object", "POST", Result)
+            .then((response) => {
+                if (!response || !response.ID) deferred.reject("missing responce");
+                if (SecurityToken) {
+                    deferred.resolve({
+                        ID: response.ID,
+                        Token: SecurityToken
+                    });
+                } else {
+                    deferred.resolve(response.ID);
+                    SecurityToken
+                }
 
 
-        })
+            })
             .catch((err) => {
                 deferred.reject(err);
             });
@@ -655,12 +693,22 @@ export default class ZeroProtocol {
 
 
 
-
+/**
+* Create a Post
+* @param {string} PostType currently must be "Post"
+* @param {object} PostInfo the security level of the object, same as the post
+* @param {object} Small preview of image/object
+* @param {object} Resource additonal image/object
+* @param {int} SecurityLevel security of the post
+* @param {int} OtherUser userId of tagged user
+* @param {string} UseSecurityToken An optional key used to encrypt the data
+* @returns {promice} promice of ajax returns
+*/
     CreatePost(PostType, PostInfo, Small, Resource, SecurityLevel, OtherUser, SecurityToken) {
 
 
         if (!this.SupportedTypes.includes(PostType)) {
-            return ErrorPromice("Not Ready");
+            return Promise.reject("Not Ready");
         }
 
         try {
@@ -710,11 +758,12 @@ export default class ZeroProtocol {
 
         } catch (err) {
             console.log(err);
-            return ErrorPromice(err);
+            return Promise.reject(err);
         }
-        return this.AjaxCall("/api/post", "POST", Result).then( (response) => {
-            this.RefreshUserPage(this.AccountInfo.AccountID);
-        });
+        return this.AjaxCall("/api/post", "POST", Result)
+            .then((response) => {
+                this.RefreshUserPage(this.AccountInfo.AccountID);
+            });
     };
 
     GetFeed(date) {
@@ -729,31 +778,35 @@ export default class ZeroProtocol {
             }
         }
 
-        return this.AjaxCall("/api/feed", "GET", Query).then( (response) => {
-            var Data = response;
-            return Data;
-            //todo should do some validation here
-        });
+        return this.AjaxCall("/api/feed", "GET", Query)
+            .then((response) => {
+                var Data = response;
+                return Data;
+                //todo should do some validation here
+            });
     };
 
 
-
+/**
+* Get current pending/inbound freind requests
+* @returns {promice} promice to list of requests
+*/
     GetFriendRequests() {
-
-        return this.AjaxCall("/api/Requests", "GET", null).then( (response) => {
-            var Data = response;
-            return Data;
-        });
+        return this.AjaxCall("/api/Requests", "GET", null)
+            .then((response) => {
+                var Data = response;
+                return Data;
+            });
     };
 
 
 
     GetFriends() {
-
-        return this.AjaxCall("/api/friends", "GET", null).then( (response) => {
-            var Data = response;
-            return Data;
-        });
+        return this.AjaxCall("/api/friends", "GET", null)
+            .then((response) => {
+                var Data = response;
+                return Data;
+            });
     };
 
     GetUserFriends(UserID) {
@@ -764,10 +817,11 @@ export default class ZeroProtocol {
 
         return this.AjaxCall("/api/userfriends", "GET", {
             "UserID": UserID
-        }).then( (response) => {
-            var Data = response;
-            return Data;
-        });
+        })
+            .then((response) => {
+                var Data = response;
+                return Data;
+            });
     };
 
 
@@ -786,38 +840,39 @@ export default class ZeroProtocol {
 
         UserID = parseInt(UserID);
         if (!(UserID > 0)) {
-            return ErrorPromice("invalid ID");
+            return Promise.reject("invalid ID");
         }
 
-        return this.AjaxCall("/api/User/" + UserID + "/Posts", "GET", Query).then(  (response) => {
-            var Data = response;
-            return Data;
-        });
+        return this.AjaxCall("/api/User/" + UserID + "/Posts", "GET", Query)
+            .then((response) => {
+                var Data = response;
+                return Data;
+            });
     };
 
 
     PostComment(Post, Comment) {
 
         if (!Post) {
-            return ErrorPromice("invalid Post");
+            return Promise.reject("invalid Post");
         }
 
         var PostID = Post.PostID;
 
         if (!(PostID > 0)) {
-            return ErrorPromice("invalid Post ID for Comment");
+            return Promise.reject("invalid Post ID for Comment");
         }
 
         if (!Post.Postdata) {
-            return ErrorPromice("missing CKey for Comment");
+            return Promise.reject("missing CKey for Comment");
         }
 
         var CKey = Post.Postdata.Ckey;
         if (!CKey) {
-            return ErrorPromice("missing CKey for Comment");
+            return Promise.reject("missing CKey for Comment");
         }
         if (!Comment) {
-            return ErrorPromice("missing Comment");
+            return Promise.reject("missing Comment");
         }
 
         let CommentKey = forge.random.getBytesSync(16);
@@ -832,9 +887,10 @@ export default class ZeroProtocol {
         return this.AjaxCall("/api/post/" + PostID + "/comments", "POST", {
             Content: EncryptedContent,
             Key: Key
-        }).then(  (response) => {
+        })
+            .then((response) => {
 
-        });
+            });
     };
 
 
@@ -842,107 +898,124 @@ export default class ZeroProtocol {
     GetComments(Post) {
 
         if (!Post) {
-            return ErrorPromice("invalid Post");
+            return Promise.reject("invalid Post");
         }
 
         var PostID = Post.PostID;
 
         if (!(PostID > 0)) {
-            return ErrorPromice("invalid Post ID for Comments");
+            return Promise.reject("invalid Post ID for Comments");
         }
 
         if (!Post.Postdata) {
-            return ErrorPromice("missing CKey for Comments");
+            return Promise.reject("missing CKey for Comments");
         }
 
         var CKey = Post.Postdata.Ckey;
 
         if (!CKey) {
-            return ErrorPromice("missing CKey for Comments");
+            return Promise.reject("missing CKey for Comments");
         }
         CKey = forge.util.decode64(CKey);
-        return this.AjaxCall("/api/post/" + PostID + "/comments", "GET", null).then(  (response) => {
+        return this.AjaxCall("/api/post/" + PostID + "/comments", "GET", null)
+            .then((response) => {
 
-            if (!response) return [];
+                if (!response) return [];
 
 
 
-            for (const element of response) {
-                try {
+                for (const element of response) {
+                    try {
 
-                    let CommentKey = this.DecryptBlockKey(element.Key, CKey);
+                        let CommentKey = this.DecryptBlockKey(element.Key, CKey);
 
-                    element.Content = JSON.parse(this.DecryptBlockKey(element.Content, CommentKey));
-                    element.failed = false;
-                    if (element.Content === null) {
+                        element.Content = JSON.parse(this.DecryptBlockKey(element.Content, CommentKey));
+                        element.failed = false;
+                        if (element.Content === null) {
+                            element.failed = true;
+                        }
+
+                    } catch {
                         element.failed = true;
                     }
-
-                } catch {
-                    element.failed = true;
                 }
-            }
 
-            return response;
+                return response;
 
-        });
+            });
     };
 
 
-
-    GetPost(PostID, OptionalKey) {
+/**
+* @param {number} PostID 
+* @param {string} UseSecurityToken An optional key used to encrypt the data
+* @returns {promice} promice to postInfo
+*/
+    GetPost(PostID, UseSecurityToken) {
 
         PostID = parseInt(PostID);
         if (!(PostID > 0)) {
-            return ErrorPromice("invalid ID");
+            return Promise.reject("invalid ID");
         }
 
-        return this.AjaxCall("/api/post/" + PostID, "GET", null).then(  (response) => {
+        return this.AjaxCall("/api/post/" + PostID, "GET", null)
+            .then((response) => {
 
-            var Data = response[0];
-            var Post = this.DecryptPost(Data, OptionalKey);
-            if (Post === null) {
-                throw "Unable to decrypt";
-            } else {
-                return Post;
-            }
-        });
+                var Data = response[0];
+                var Post = this.DecryptPost(Data, UseSecurityToken);
+                if (Post === null) {
+                    throw "Unable to decrypt";
+                } else {
+                    return Post;
+                }
+            });
     };
 
 
-    GetPostBody(PostID, OptionalKey) {
+/**
+* @param {number} PostID
+* @param {string} UseSecurityToken An optional key used to encrypt the data
+* @returns {promice} promice to resource
+*/
+    GetPostBody(PostID, UseSecurityToken) {
         PostID = parseInt(PostID);
         if (!(PostID > 0)) {
-            return ErrorPromice("invalid ID");
+            return Promise.reject("invalid ID");
         }
 
-        return this.AjaxCall("/api/post/" + PostID + "/body", "GET", null).then(  (response) => {
-            var Data = response[0];
-            var Post = this.DecryptPost(Data, OptionalKey);
-            if (Post === null) {
-                return null;
-            } else {
-                return Post;
-            }
-        });
+        return this.AjaxCall("/api/post/" + PostID + "/body", "GET", null)
+            .then((response) => {
+                var Data = response[0];
+                var Post = this.DecryptPost(Data, UseSecurityToken);
+                if (Post === null) {
+                    return null;
+                } else {
+                    return Post;
+                }
+            });
     };
 
-
-    GetPostSmall(PostID, OptionalKey) {
+/**
+* @param {number} PostID
+* @param {string} UseSecurityToken An optional key used to encrypt the data
+* @returns {promice} promice to post small
+*/
+    GetPostSmall(PostID, UseSecurityToken) {
         PostID = parseInt(PostID);
         if (!(PostID > 0)) {
-            return ErrorPromice("invalid ID");
+            return Promise.reject("invalid ID");
         }
 
-        return this.AjaxCall("/api/post/" + PostID + "/Small", "GET", null).then(  (response) => {
-            var Data = response[0];
-            var Post = this.DecryptPost(Data, OptionalKey);
-            if (Post === null) {
-                return null;
-            } else {
-                return Post;
-            }
-        });
+        return this.AjaxCall("/api/post/" + PostID + "/Small", "GET", null)
+            .then((response) => {
+                var Data = response[0];
+                var Post = this.DecryptPost(Data, UseSecurityToken);
+                if (Post === null) {
+                    return null;
+                } else {
+                    return Post;
+                }
+            });
     };
 
 
@@ -1140,55 +1213,61 @@ export default class ZeroProtocol {
                 if (x.promise) { //Check if Differed
                     return Result;
                 }
-                return FinishedPromice(AID);
+                return Promise.resolve(AID);
             }
 
         }
 
-        return this.AjaxCall("/api/U/" + encodeURIComponent(Name), "GET", null).then(  (response) => {
+        return this.AjaxCall("/api/U/" + encodeURIComponent(Name), "GET", null)
+            .then((response) => {
 
-            if (typeof response.AccountID === 'undefined' && response.AccountID === null) {
-                throw "Unable to Find person";
-            }
+                if (typeof response.AccountID === 'undefined' && response.AccountID === null) {
+                    throw "Unable to Find person";
+                }
 
-            if (this.PeopleCashe.includes(response.AccountID)) {
-                CallBack(Person.AccountID);
-            }
+                if (this.PeopleCashe.includes(response.AccountID)) {
+                    CallBack(Person.AccountID);
+                }
 
-            var Person = this.PersonFromResponce(response);
-            if (!Person) {
-                throw "unable to find person";
-            }
-            return Person.AccountID;
-        });
+                var Person = this.PersonFromResponce(response);
+                if (!Person) {
+                    throw "unable to find person";
+                }
+                return Person.AccountID;
+            });
 
     };
 
+/**
+* Fetch user account infomation. Uses cashe in avalable
+* @param {number} AccountID
+* @returns {promice}  user account infomation
+*/
     PreloadPerson(AccountID) {
         AccountID = parseInt(AccountID);
-        if (isNaN(AccountID)) return ErrorPromice("Invalid id");
+        if (isNaN(AccountID)) return Promise.reject("Invalid id");
 
         var Result = this.PeopleCashe[AccountID];
         if (Result) {
-            if (Result.promise) { //check if it is a jquery differed
-                // Deferred
+            if (typeof Result?.then === 'function') { //check if it is a promice
                 return this.PeopleCashe[AccountID];
             }
-            return FinishedPromice(AccountID);
+            return Promise.resolve(AccountID);
         }
 
-        Result = this.AjaxCall("/api/User/" + AccountID, "GET", null).then(  (response) => {
-            if (typeof response.AccountID === 'undefined' && response.AccountID === null) {
-                throw "person not found";
-            }
+        Result = this.AjaxCall("/api/User/" + AccountID, "GET", null)
+            .then((response) => {
+                if (typeof response.AccountID === 'undefined' && response.AccountID === null) {
+                    throw "person not found";
+                }
 
-            if (this.PersonFromResponce(response)) {
-                return AccountID;
-            } else {
-                throw "person not found";
-            }
+                if (this.PersonFromResponce(response)) {
+                    return AccountID;
+                } else {
+                    throw "person not found";
+                }
 
-        });
+            });
         this.PeopleCashe[AccountID] = Result;
         return Result;
     };
@@ -1357,12 +1436,13 @@ export default class ZeroProtocol {
             };
 
         } catch (err) {
-            return ErrorPromice(err);
+            return Promise.reject(err);
         }
 
-        return this.AjaxCall("/api/SaveFreind/", "POST", Result).then(  (response) => {
-            this.RefreshPerson(Request.AccountID);
-        });
+        return this.AjaxCall("/api/SaveFreind/", "POST", Result)
+            .then((response) => {
+                this.RefreshPerson(Request.AccountID);
+            });
 
     };
 
@@ -1370,26 +1450,27 @@ export default class ZeroProtocol {
     SendFriend(UserID, Text) {
 
         if (UserID === this.AccountInfo.AccountID) {
-            return ErrorPromice("cant friend self");
+            return Promise.reject("cant friend self");
         }
 
         var Person = this.PersonFromCache(UserID);
 
         if (!Person) {
-            return ErrorPromice("person not found");
+            return Promise.reject("person not found");
         }
         //todo probally need to improve this method.
         try {
             var Result = this.generateRequest(UserID, Text);
         } catch (err) {
             console.error(err);
-            return ErrorPromice(err);
+            return Promise.reject(err);
         }
         var ID = UserID;
-        return this.AjaxCall("/api/FreindRequest/", "POST", Result).then(  (response) => {
-            this.RefreshPerson(ID);
-            return response;
-        });
+        return this.AjaxCall("/api/FreindRequest/", "POST", Result)
+            .then((response) => {
+                this.RefreshPerson(ID);
+                return response;
+            });
     };
 
 
@@ -1397,11 +1478,11 @@ export default class ZeroProtocol {
     AcceptSentFriendRequest(UserID) {
         var Person = this.PersonFromCache(UserID);
         if (!Person) {
-            return ErrorPromice("Request not found");
+            return Promise.reject("Request not found");
         }
 
         if (!Secret) {
-            return ErrorPromice("Invalid Secret");
+            return Promise.reject("Invalid Secret");
         }
         return this.AcceptFriendRequest(UserID, Secret, True);
     };
@@ -1419,10 +1500,10 @@ export default class ZeroProtocol {
         }
 
         if (!Person || !Person.FriendRequest) {
-            return ErrorPromice("Request not found");
+            return Promise.reject("Request not found");
         }
 
-        var deferred = $.Deferred();
+        var deferred = new Promise();
         var Message = null;
         if (!Person.AcceptedRequest && !Automatic) {
             try {
@@ -1442,21 +1523,22 @@ export default class ZeroProtocol {
             console.log("invalid request state");
         }
 
-        this.AjaxCall("/api/AcceptRequest/", "POST", Message).then(  (response) => {
+        this.AjaxCall("/api/AcceptRequest/", "POST", Message)
+            .then((response) => {
 
 
 
-            var Freind = this.RecieveRequest(response)
-                .catch((err) => {
-                    console.error(err);
-                    deferred.reject(err);
-                    return;
-                })
-                .then(() => {
-                    this.RefreshPerson(Request.AccountID);
-                    deferred.resolve(UserID);
-                });
-        })
+                var Freind = this.RecieveRequest(response)
+                    .catch((err) => {
+                        console.error(err);
+                        deferred.reject(err);
+                        return;
+                    })
+                    .then(() => {
+                        this.RefreshPerson(Request.AccountID);
+                        deferred.resolve(UserID);
+                    });
+            })
             .catch((err) => {
                 deferred.reject(err);
             });
@@ -1469,62 +1551,65 @@ export default class ZeroProtocol {
 
         PostID = parseInt(PostID);
         if (!(PostID > 0)) {
-            return ErrorPromice("invalid PostID");
+            return Promise.reject("invalid PostID");
         }
 
-        return this.AjaxCall("/api/setprofile", "POST").then(  {
-            ObjectID: PostID
-        }, (response) => {
+        return this.AjaxCall("/api/setprofile", "POST")
+            .then({
+                ObjectID: PostID
+            }, (response) => {
 
-            this.RefreshPerson(this.AccountInfo.AccountID);
-        });
+                this.RefreshPerson(this.AccountInfo.AccountID);
+            });
     };
 
 
     GetStatus() {
-        return this.AjaxCall("/api/status", "GET", null).then(  (response) => {
+        return this.AjaxCall("/api/status", "GET", null)
+            .then((response) => {
 
-            try {
-                if (!response) {
-                    Zero.alert("invalid status");
+                try {
+                    if (!response) {
+                        Zero.alert("invalid status");
+                        return;
+                    }
+
+                    response = response[0];
+                } catch (err) {
+                    Zero.alert("invalid status:" + err);
                     return;
                 }
+                if (response.AcceptedRequests > 0) {
+                    this.AcceptAllAccepted();
+                }
 
-                response = response[0];
-            } catch (err) {
-                Zero.alert("invalid status:" + err);
-                return;
-            }
-            if (response.AcceptedRequests > 0) {
-                this.AcceptAllAccepted();
-            }
-
-            return response;
-        });
+                return response;
+            });
 
     };
 
     AcceptAllAccepted() {
 
-        var deferred = $.Deferred();
+        var deferred = new Promise();
 
-        this.AjaxCall("/api/Accepted", "GET", null).then(  (response) => {
+        this.AjaxCall("/api/Accepted", "GET", null)
+            .then((response) => {
 
-            if (!response) {
-                deferred.reject("invalid responce");
-                return;
-            }
+                if (!response) {
+                    deferred.reject("invalid responce");
+                    return;
+                }
 
-            response.forEach((item, index) => {
-                this.RecieveRequest(item)
-                    .then(() => {
-
-                    })
-                    .catch(() => {
-                        this.Alert("failed to add freind");
-                    });
+                response.forEach((item, index) => {
+                    this.RecieveRequest(item)
+                        .then(() => {
+                            this.Alert("accepted freild request");
+                        })
+                        .catch(() => {
+                            this.Alert("failed to add freind");
+                        });
+                });
             });
-        });
         return deferred;
     };
 
@@ -1593,27 +1678,6 @@ export default class ZeroProtocol {
 }
 
 
-
-
-/**
- * Returns a Failed promise
- * @param {string} Message The ERROR MESSAGE of the promise
- * @returns {promise} a Failed promise
- */
-function ErrorPromice(Message) {
-    Promise.reject(Message);
-}
-
-/**
- * Returns a Finished promise
- * @param {object} Message The result of the promise
- * @returns {promise} a Finished promise
- */
-function FinishedPromice(Message) {
-    return Promise.resolve(Message);
-}
-
-
 function isArrayEmpty(array) {
     if (!array) return true;
     return !Array.isArray(array) || !array.length;
@@ -1638,4 +1702,3 @@ function getCookie(name) {
     }
     return null;
 }
-
