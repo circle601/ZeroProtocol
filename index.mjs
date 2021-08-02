@@ -3,7 +3,7 @@ import { sha3_256} from 'js-sha3';
 
 /**
  * @fileOverview Protocol to communicate with server
- * @version 1.0.0
+ * @version 1.0.1
  */
 
 //TODO should i use TweetNaCl for crypto
@@ -22,7 +22,6 @@ export default class ZeroProtocol {
     }
 
     //used to check compatibility with server version
-    VersionString = "1.0.0";
     VersionString = "1.0.1";
 
     ConnectionConfig = {
