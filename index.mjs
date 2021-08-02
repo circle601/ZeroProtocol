@@ -3,7 +3,7 @@ import { sha3_256} from 'js-sha3';
 
 /**
  * @fileOverview Protocol to communicate with server
- * @version 1.0.1
+ * @version 1.0.2
  */
 
 //TODO should i use TweetNaCl for crypto
