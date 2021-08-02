@@ -3,7 +3,7 @@ import { sha3_256} from 'js-sha3';
 
 /**
  * @fileOverview Protocol to communicate with server
- * @version 1.0.2
+ * @version 1.0.3
  */
 
 //TODO should i use TweetNaCl for crypto
@@ -22,7 +22,7 @@ export default class ZeroProtocol {
     }
 
     //used to check compatibility with server version
-    VersionString = "1.0.1";
+    VersionString = "1.0.3";
 
     ConnectionConfig = {
         APIPath: "",
@@ -486,7 +486,7 @@ export default class ZeroProtocol {
         if (!Username || !Password) {
             return Promise.reject("Missing infomation");
         }
-        let captcha = VersionString;
+        let captcha = this.VersionString;
         this.StopWatch();
         Username = Username + "";
         Password = Password + "";
