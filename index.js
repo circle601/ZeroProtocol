@@ -23,7 +23,7 @@ export default class ZeroProtocol {
 
     ConnectionConfig = {
         APIPath: "",
-        UseCookieSession: true,
+        UseCookieSession: true
     };
 
     MinKeyIterations = 5000;
@@ -57,6 +57,7 @@ export default class ZeroProtocol {
     };
 
     Cryptostate = {
+        SessionId: "",
         StorageKey: "",
         KeyCSRFToken: "",
         ContentPublicKey: "",
@@ -377,11 +378,10 @@ export default class ZeroProtocol {
         var DataString = null;
         var contentType;
 
+      
 
         let Options = {
             method: Method,
-            cache: 'no-cache',
-            credentials: "same-origin",
             headers: {
                 'Accept': 'application/json',
                 'Content-Type': 'application/json'
@@ -389,6 +389,18 @@ export default class ZeroProtocol {
             dataType: "json",
             redirect: 'error'
         };
+
+        if (this.ConnectionConfig.UseCookieSession) {
+            if (this.ConnectionConfig.APIPath != "") {
+                Options.credentials = "include" //todo very insecure 
+            } else {
+                Options.credentials = "same-origin";
+            }
+        } else {
+            Options.credentials = 'omit';
+        }
+
+
 
         let URL = this.ConnectionConfig.APIPath + Address;
         if (Method == "POST" && Data) {
@@ -508,105 +520,106 @@ export default class ZeroProtocol {
                 return Promise.reject("Public name is too long");
             }
         }
-        var deferred = new Promise();
-        var KeyIteration = this.MinKeyIterations;
-        try {
-            var rsa = forge.pki.rsa;
-            var pki = forge.pki;
-            var asn1 = forge.asn1;
-
-            
-              
-            var iv = forge.random.getBytesSync(16);
-            var salt = "";
-            var AccountKey = this.KeyDerivation(Password, KeyIteration);
-
-        } catch (err) {
-            console.log(err);
-            deferred.reject(err);
-        }
+        return new Promise((resolve, reject) => {
+            var KeyIteration = this.MinKeyIterations;
+            try {
+                var rsa = forge.pki.rsa;
+                var pki = forge.pki;
+                var asn1 = forge.asn1;
 
 
-        rsa.generateKeyPair({
-            bits: 2048,
-            workers: -1
-        }, (err, Publickeypair) => {
 
-            if (err) {
-                deferred.reject(err);
+                var iv = forge.random.getBytesSync(16);
+                var salt = "";
+                var AccountKey = this.KeyDerivation(Password, KeyIteration);
+
+            } catch (err) {
+                console.log(err);
+                reject(err);
                 return;
             }
+
 
             rsa.generateKeyPair({
                 bits: 2048,
                 workers: -1
-            }, (err, keypair) => {
+            }, (err, Publickeypair) => {
 
                 if (err) {
-                    deferred.reject(err);
+                    reject(err);
                     return;
                 }
 
-                try {
+                rsa.generateKeyPair({
+                    bits: 2048,
+                    workers: -1
+                }, (err, keypair) => {
 
-                    this.AccountInfo = AccountInfo;
-                    var ContentPublicKey = forge.util.encode64(asn1.toDer(pki.publicKeyToAsn1(keypair.publicKey))
-                        .getBytes());
-                    var ContentPrivateKey = forge.util.encode64(asn1.toDer(pki.privateKeyToAsn1(keypair.privateKey))
-                        .getBytes());
-                    var PublicPublicKey = forge.util.encode64(asn1.toDer(pki.publicKeyToAsn1(Publickeypair.publicKey))
-                        .getBytes());
-                    var PublicPrivateKey = forge.util.encode64(asn1.toDer(pki.privateKeyToAsn1(Publickeypair.privateKey))
-                        .getBytes());
+                    if (err) {
+                        reject(err);
+                        return;
+                    }
 
-                    var AccountInfo = {
-                        Username: Username,
-                        'ContentPrivateKey': ContentPrivateKey,
-                        'ContentPublicKey': ContentPublicKey,
-                        'PublicPrivateKey': PublicPrivateKey
-                    };
+                    try {
 
+                        this.AccountInfo = AccountInfo;
+                        var ContentPublicKey = forge.util.encode64(asn1.toDer(pki.publicKeyToAsn1(keypair.publicKey))
+                            .getBytes());
+                        var ContentPrivateKey = forge.util.encode64(asn1.toDer(pki.privateKeyToAsn1(keypair.privateKey))
+                            .getBytes());
+                        var PublicPublicKey = forge.util.encode64(asn1.toDer(pki.publicKeyToAsn1(Publickeypair.publicKey))
+                            .getBytes());
+                        var PublicPrivateKey = forge.util.encode64(asn1.toDer(pki.privateKeyToAsn1(Publickeypair.privateKey))
+                            .getBytes());
 
-                    var cipher = forge.aes.createEncryptionCipher(AccountKey, 'CBC');
-                    cipher.start(iv);
-                    cipher.update(forge.util.createBuffer(JSON.stringify(AccountInfo)));
-                    cipher.finish();
-                    var encrypted = cipher.output;
-
-                    var AccountData = forge.util.encode64(iv) + "*" + forge.util.encode64(encrypted.getBytes()) + "*" + KeyIteration.toString(16);
-
-                    var UsernameHash = sha3_256(Username);
-
-                    //TODO need to add a check to the decrypted data to ensure that the decrypted data is correct.
-                    var Submitdata = {
-                        'Username': UsernameHash,
-                        'Password': this.LoginHash(Password),
-                        'AccountData': AccountData,
-                        Publickey: PublicPublicKey,
-                        'captcha': captcha,
-                        PublicName: PublicName
-                    };
-
-                } catch (err) {
-                    console.log(err);
-                    deferred.reject(err);
-                    return;
-                }
+                        var AccountInfo = {
+                            Username: Username,
+                            'ContentPrivateKey': ContentPrivateKey,
+                            'ContentPublicKey': ContentPublicKey,
+                            'PublicPrivateKey': PublicPrivateKey
+                        };
 
 
-                //todo this
-                this.AjaxCall("/api/create", "POST", Submitdata)
-                    .then((response) => {
-                        deferred.resolve();
-                    })
-                    .catch((err) => {
-                        deferred.reject(err);
-                    });
+                        var cipher = forge.aes.createEncryptionCipher(AccountKey, 'CBC');
+                        cipher.start(iv);
+                        cipher.update(forge.util.createBuffer(JSON.stringify(AccountInfo)));
+                        cipher.finish();
+                        var encrypted = cipher.output;
 
+                        var AccountData = forge.util.encode64(iv) + "*" + forge.util.encode64(encrypted.getBytes()) + "*" + KeyIteration.toString(16);
+
+                        var UsernameHash = sha3_256(Username);
+
+                        //TODO need to add a check to the decrypted data to ensure that the decrypted data is correct.
+                        var Submitdata = {
+                            'Username': UsernameHash,
+                            'Password': this.LoginHash(Password),
+                            'AccountData': AccountData,
+                            Publickey: PublicPublicKey,
+                            'captcha': captcha,
+                            PublicName: PublicName
+                        };
+
+                    } catch (err) {
+                        console.log(err);
+                        reject(err);
+                        return;
+                    }
+
+
+                    //todo this
+                    this.AjaxCall("/api/create", "POST", Submitdata)
+                        .then((response) => {
+                            resolve();
+                        })
+                        .catch((err) => {
+                            reject(err);
+                        });
+
+                });
             });
-        });
 
-        return deferred.promise();
+        });
     };
 
 
@@ -620,9 +633,9 @@ export default class ZeroProtocol {
 */
     StoreObject(Object, SecurityLevel, UseSecurityToken) {
 
-        var deferred = new Promise();
+        return new Promise((resolve, reject) => {
 
-        try {
+
 
 
             var rsa = forge.pki.rsa;
@@ -667,28 +680,28 @@ export default class ZeroProtocol {
             var d = new Date();
             Result.date = d.getUTCDate();
 
-        } catch (err) {
-            return Promise.reject(err);
-        }
-        this.AjaxCall("/api/object", "POST", Result)
-            .then((response) => {
-                if (!response || !response.ID) deferred.reject("missing responce");
-                if (SecurityToken) {
-                    deferred.resolve({
-                        ID: response.ID,
-                        Token: SecurityToken
-                    });
-                } else {
-                    deferred.resolve(response.ID);
-                    SecurityToken
-                }
+
+            this.AjaxCall("/api/object", "POST", Result)
+                .then((response) => {
+                    if (!response || !response.ID) deferred.reject("missing responce");
+                    if (SecurityToken) {
+                        resolve({
+                            ID: response.ID,
+                            Token: UseSecurityToken
+                        });
+                    } else {
+                        resolve(response.ID);
+                    }
+                    
+
+                })
+                .catch((err) => {
+                    reject(err);
+                });
+        });
 
 
-            })
-            .catch((err) => {
-                deferred.reject(err);
-            });
-        return deferred;
+
     };
 
 
@@ -1503,46 +1516,46 @@ export default class ZeroProtocol {
             return Promise.reject("Request not found");
         }
 
-        var deferred = new Promise();
-        var Message = null;
-        if (!Person.AcceptedRequest && !Automatic) {
-            try {
-                Message = this.generateRequest(UserID);
-            } catch (err) {
-                console.error(err);
-                deferred.reject(err);
-                return;
+        return new Promise((resolve, reject) => {
+            var Message = null;
+            if (!Person.AcceptedRequest && !Automatic) {
+                try {
+                    Message = this.generateRequest(UserID);
+                } catch (err) {
+                    console.error(err);
+                    reject(err);
+                    return;
+                }
+            } else if (Person.AcceptedRequest) {
+                Message = {
+                    AcceptedOnly: true,
+                    OtherID: UserID,
+                    Message: Message
+                };
+            } else {
+                console.log("invalid request state");
             }
-        } else if (Person.AcceptedRequest) {
-            Message = {
-                AcceptedOnly: true,
-                OtherID: UserID,
-                Message: Message
-            };
-        } else {
-            console.log("invalid request state");
-        }
 
-        this.AjaxCall("/api/AcceptRequest/", "POST", Message)
-            .then((response) => {
+            this.AjaxCall("/api/AcceptRequest/", "POST", Message)
+                .then((response) => {
 
 
 
-                var Freind = this.RecieveRequest(response)
-                    .catch((err) => {
-                        console.error(err);
-                        deferred.reject(err);
-                        return;
-                    })
-                    .then(() => {
-                        this.RefreshPerson(Request.AccountID);
-                        deferred.resolve(UserID);
-                    });
-            })
-            .catch((err) => {
-                deferred.reject(err);
-            });
-        return deferred.promise();
+                    var Freind = this.RecieveRequest(response)
+                        .catch((err) => {
+                            console.error(err);
+                            reject(err);
+                            return;
+                        })
+                        .then(() => {
+                            this.RefreshPerson(Request.AccountID);
+                            resolve(UserID);
+                        });
+                })
+                .catch((err) => {
+                    reject(err);
+                });
+        });
     };
 
 
@@ -1590,27 +1603,30 @@ export default class ZeroProtocol {
 
     AcceptAllAccepted() {
 
-        var deferred = new Promise();
+        return new Promise((resolve, reject) => {
 
-        this.AjaxCall("/api/Accepted", "GET", null)
-            .then((response) => {
+            this.AjaxCall("/api/Accepted", "GET", null)
+                .then((response) => {
 
-                if (!response) {
-                    deferred.reject("invalid responce");
-                    return;
-                }
+                    if (!response) {
+                        reject("invalid responce");
+                        return;
+                    }
+                    //todo return at the end of all
+                    response.forEach((item, index) => {
+                        this.RecieveRequest(item)
+                            .then(() => {
+                                this.Alert("accepted freild request");
+                            })
+                            .catch(() => {
+                                this.Alert("failed to add freind");
+                            });
+                    });
 
-                response.forEach((item, index) => {
-                    this.RecieveRequest(item)
-                        .then(() => {
-                            this.Alert("accepted freild request");
-                        })
-                        .catch(() => {
-                            this.Alert("failed to add freind");
-                        });
+                    resolve();
+
                 });
-            });
-        return deferred;
+        });
     };
 
 
