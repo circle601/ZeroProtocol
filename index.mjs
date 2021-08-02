@@ -1,4 +1,4 @@
-﻿import { forge } from 'node-forge';
+﻿import * as forge from 'node-forge';
 import { sha3_256} from 'js-sha3';
 
 
