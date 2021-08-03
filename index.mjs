@@ -452,7 +452,7 @@ export default class ZeroProtocol {
                 var encryptedData = forge.util.decode64(Parts[1]);
                 var KeyIterations = 10;
                 if (Parts.length > 2) {
-                    KeyIterations = Parts[2]
+                    KeyIterations = parseInt(Parts[2], 16);
                 } else {
                     KeyIterations = 10;
                 }
