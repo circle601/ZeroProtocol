@@ -3,7 +3,7 @@ import { sha3_256} from 'js-sha3';
 
 /**
  * @fileOverview Protocol to communicate with server
- * @version 1.0.4
+ * @version 1.0.6
  */
 
 //TODO should i use TweetNaCl for crypto
@@ -22,22 +22,20 @@ export default class ZeroProtocol {
     }
 
     //used to check compatibility with server version
-    VersionString = "1.0.4";
+    VersionString = "1.0.6";
 
     ConnectionConfig = {
         APIPath: "",
         UseCookieSession: true
     };
 
+    //Used for key generateion, lengthen when processing power increases
     MinKeyIterations = 5000;
 
     //Callback Functions_______________________________________
-    LogOutCallback = null;
-    //Function called when unable to login
-    AuthFail = null;
+    LogOutCallback = null; 
+    AuthFail = null; //called when unable to login
     RefreshUserPage = null;
-
-
 
     //Function called to report errors
     Alert = (x) => {
@@ -51,28 +49,18 @@ export default class ZeroProtocol {
     PeopleCashe = [];
 
     state = {
+        SessionId: "",
         CSRFToken: "",
-        Username: "",
-        Waiting: false,
-        WaitingCallback: null
+        Username: ""
     };
 
     Cryptostate = {
-        SessionId: "",
         StorageKey: "",
         KeyCSRFToken: "",
         ContentPublicKey: "",
         ContentPrivateKey: "",
         PublicPublicKey: "",
         PublicPrivateKey: ""
-    };
-
-    SetReadyEvent(Callback) {
-        if (this.Ready) {
-            Callback();
-        } else {
-            this.ReadyEvent = Callback;
-        };
     };
 
     /**
@@ -92,7 +80,7 @@ export default class ZeroProtocol {
         if (numIterations == 10) { //todo remove this
             KeyLength = 16;
         }
- 	let salt = "";
+        let salt = "";
         var AccountKey = forge.pkcs5.pbkdf2(Password, salt, numIterations, KeyLength);
         return AccountKey;
     };
@@ -145,15 +133,15 @@ export default class ZeroProtocol {
 
         if (typeof Storage === "undefined") return Promise.reject(false);
 
-
-        if (this.CrossDomain) {
-            this.CookieSession = localStorage.getItem('ZeroCookieSession');
-        }
-
         var InfoText = localStorage.getItem('ZeroAccount');
         if (!InfoText) return Promise.reject(false);
 
-        return this.AjaxCall("/api/StorageKey", "GET", null)
+        if (!this.ConnectionConfig.UseCookieSession) {
+            this.state.SessionId = localStorage.getItem('ZeroCookieSession');
+            if (!InfoText) return Promise.reject(false);
+        }
+
+        return this.AjaxCall("/api/storagekey", "GET", null)
             .then((response) => {
                 try {
 
@@ -189,10 +177,7 @@ export default class ZeroProtocol {
                         this.ClearPersistant();
                         return false;
                     }
-
-                    if (document.cookie.indexOf("ZeroPersisting=") === -1) {
-                        document.cookie = "ZeroPersisting=True";
-                    }
+                  
                     this.WatchSessionStorage();
                 } catch (e) {
                     this.LogOut();
@@ -292,7 +277,13 @@ export default class ZeroProtocol {
             if ((!localStorage.ZeroAccount || localStorage.ZeroAccount === "")) {
                 localStorage.ZeroAccount = EncryptedStorage;
             }
-            document.cookie = "ZeroPersisting=True" + ";path=/;SameSite=Strict";
+
+            if (this.ConnectionConfig.UseCookieSession) {
+                document.cookie = "ZeroPersisting=True" + ";path=/;SameSite=Strict";
+            } else {
+                localStorage.setItem('ZeroCookieSession', this.state.SessionId);
+            }
+
             this.WatchSessionStorage();
         } else {
             return false;
@@ -312,7 +303,7 @@ export default class ZeroProtocol {
             localStorage.removeItem('ZeroCookieSession');
 
             localStorage.clear();
-            if (getCookie("ZeroPersisting")) {
+            if (this.ConnectionConfig.UseCookieSession && getCookie("ZeroPersisting")) {
                 document.cookie = "ZeroPersisting" + "=" +
                     ";expires=Thu, 01 Jan 1970 00:00:01 GMT;";
             }
@@ -390,26 +381,40 @@ export default class ZeroProtocol {
             URL = URL + "?" + new URLSearchParams(Data);
         }
 
+        return new Promise((resolve, reject) => {
 
+            var resultPromice = fetch(URL, Options)
+                .catch((error) => {
+                    console.log('fetch failed:', URL + error);
+                    Result.text().then((x) => {
+                        reject(x);
+                    });
+                    return;
+                })
+                .then((Result) => {
+                    if (Result.status === 403) {
+                        this.LogOut();
 
-        var resultPromice = fetch(URL, Options)
-            .catch((error) => {
-                console.error('Error:', URL + error);
-            })
-            .then((Result) => {
-                if (Result.status === 403) {
-                    this.LogOut();
-                    throw Error("not logged in");
-                }
+                        Result.text().then((x) => {
+                            reject(x);
+                        });
+                        return;
+                    }
 
-                if (!Result.ok) {
-                    throw Error(Result.status);
-                }
-                return Result.json();
+                    if (!Result.ok) {
+                        Result.text().then((x) => {
+                            reject(x);
+                        });
+                        return;
+                    }
 
-            });
+                    Result.json().then((x) => {
+                        resolve(x);
+                    });
+                });
+        });
 
-        return resultPromice;
+    
 
     };
 
@@ -440,7 +445,6 @@ export default class ZeroProtocol {
             .then((response) => {
                 var Data = response;
                 if (Data.AccountData === undefined) {
-                    this.state.Waiting = false;
                     throw "Unable to get account data";
                 }
                 var AccountData = new String(Data.AccountData);
@@ -753,6 +757,10 @@ export default class ZeroProtocol {
             });
     };
 
+/**
+* Get the current users feed of posts
+* @returns {promice} promice to list of post ids
+*/
     GetFeed(date) {
         let Query = {};
         if (date) {
@@ -775,11 +783,11 @@ export default class ZeroProtocol {
 
 
 /**
-* Get current pending/inbound freind requests
+* Get current pending/inbound friend requests
 * @returns {promice} promice to list of requests
 */
     GetFriendRequests() {
-        return this.AjaxCall("/api/Requests", "GET", null)
+        return this.AjaxCall("/api/requests", "GET", null)
             .then((response) => {
                 var Data = response;
                 return Data;
@@ -830,7 +838,7 @@ export default class ZeroProtocol {
             return Promise.reject("invalid ID");
         }
 
-        return this.AjaxCall("/api/User/" + UserID + "/Posts", "GET", Query)
+        return this.AjaxCall("/api/user/" + UserID + "/Posts", "GET", Query)
             .then((response) => {
                 var Data = response;
                 return Data;
@@ -866,18 +874,14 @@ export default class ZeroProtocol {
 
         CKey = forge.util.decode64(CKey);
 
-
-
-
         let EncryptedContent = this.EncryptBlock(JSON.stringify(Comment), CommentKey);
         let Key = this.EncryptBlock(CommentKey, CKey);
         return this.AjaxCall("/api/post/" + PostID + "/comments", "POST", {
             Content: EncryptedContent,
             Key: Key
-        })
-            .then((response) => {
+        }).then((response) => {
 
-            });
+           });
     };
 
 
@@ -1006,6 +1010,10 @@ export default class ZeroProtocol {
     };
 
 
+/**
+* Decrypt a block of data using the provided keys
+* @private
+*/
     DecryptBlock(Data, EncryptedKey, PublicKey) {
         if (!PublicKey) throw "Invalid PublicKey Key";
         if (!EncryptedKey) throw "Invalid EncryptedKey";
@@ -1243,7 +1251,7 @@ export default class ZeroProtocol {
             return Promise.resolve(AccountID);
         }
 
-        Result = this.AjaxCall("/api/User/" + AccountID, "GET", null)
+        Result = this.AjaxCall("/api/user/" + AccountID, "GET", null)
             .then((response) => {
                 if (typeof response.AccountID === 'undefined' && response.AccountID === null) {
                     throw "person not found";
@@ -1260,7 +1268,10 @@ export default class ZeroProtocol {
         return Result;
     };
 
-
+/**
+* Add a user into the store from a responce
+* @private
+*/
     PersonFromResponce(response) {
 
         const pki = forge.pki;
@@ -1408,13 +1419,13 @@ export default class ZeroProtocol {
             }
 
             var Key = forge.random.getBytesSync(16);
-            var Freindship = this.EncryptBlock(Data.ContentPublicKey, Key);
+            var Friendship = this.EncryptBlock(Data.ContentPublicKey, Key);
             var EncryptedKey = forge.util.encode64(this.Cryptostate.ContentPublicKey.encrypt(Key));
 
             var Result = {
                 OtherID: Data.Userid,
                 Key: EncryptedKey,
-                Data: Freindship,
+                Data: Friendship,
                 Message: {}
             };
 
@@ -1422,7 +1433,7 @@ export default class ZeroProtocol {
             return Promise.reject(err);
         }
 
-        return this.AjaxCall("/api/SaveFreind/", "POST", Result)
+        return this.AjaxCall("/api/savefriend/", "POST", Result)
             .then((response) => {
                 this.RefreshPerson(Request.AccountID);
             });
@@ -1449,7 +1460,7 @@ export default class ZeroProtocol {
             return Promise.reject(err);
         }
         var ID = UserID;
-        return this.AjaxCall("/api/FreindRequest/", "POST", Result)
+        return this.AjaxCall("/api/friendrequest/", "POST", Result)
             .then((response) => {
                 this.RefreshPerson(ID);
                 return response;
@@ -1506,12 +1517,12 @@ export default class ZeroProtocol {
                 console.log("invalid request state");
             }
 
-            this.AjaxCall("/api/AcceptRequest/", "POST", Message)
+            this.AjaxCall("/api/acceptrequest/", "POST", Message)
                 .then((response) => {
 
 
 
-                    var Freind = this.RecieveRequest(response)
+                    var Friend = this.RecieveRequest(response)
                         .catch((err) => {
                             console.error(err);
                             reject(err);
@@ -1575,7 +1586,7 @@ export default class ZeroProtocol {
 
         return new Promise((resolve, reject) => {
 
-            this.AjaxCall("/api/Accepted", "GET", null)
+            this.AjaxCall("/api/accepted", "GET", null)
                 .then((response) => {
 
                     if (!response) {
@@ -1589,7 +1600,7 @@ export default class ZeroProtocol {
                                 this.Alert("accepted freild request");
                             })
                             .catch(() => {
-                                this.Alert("failed to add freind");
+                                this.Alert("failed to add friend");
                             });
                     });
 

@@ -1,8 +1,12 @@
 {
   "name": "zero-protocol",
-  "version": "1.0.5",
+  "version": "1.0.6",
   "dependencies": {
     "js-sha3": "^0.8.0",
     "node-forge": "^0.10.0"
+  },
+  "scripts": {
+    "preversion": "yarn test",
+    "postversion": "jsdoc"
   }
 }
