@@ -3,7 +3,7 @@ import { sha3_256} from 'js-sha3';
 
 /**
  * @fileOverview Protocol to communicate with server
- * @version 1.0.6
+ * @version 1.0.7
  */
 
 //TODO should i use TweetNaCl for crypto
@@ -22,7 +22,7 @@ export default class ZeroProtocol {
     }
 
     //used to check compatibility with server version
-    VersionString = "1.0.6";
+    VersionString = "1.0.7";
 
     ConnectionConfig = {
         APIPath: "",
@@ -91,8 +91,10 @@ export default class ZeroProtocol {
      * @returns {string} A Hash derrived from the password
      */
     LoginHash(Password) {
+        //todo use a key distribution function
         return sha3_256(Password);
     };
+
 
 
     SighHash(Content) {
@@ -108,7 +110,7 @@ export default class ZeroProtocol {
      *Check if the user as stored credentials
      * @returns {boolean} credentials are valid
      */
-    Persisting() {
+    persisting() {
 
         if (!this.Cryptostate.ContentPublicKey) {
             if (typeof Storage === "undefined") return false;
@@ -129,7 +131,7 @@ export default class ZeroProtocol {
      *Load stored credentials from local storage if possible
      * @returns {promice} promice 
      */
-    LoadPersistant() {
+    loadPersistent() {
 
         if (typeof Storage === "undefined") return Promise.reject(false);
 
@@ -409,6 +411,12 @@ export default class ZeroProtocol {
                     }
 
                     Result.json().then((x) => {
+
+                        if (!!x && x.done === false && !!x.error) {
+                            reject(x.error);
+                            return;
+                        }
+
                         resolve(x);
                     });
                 });
@@ -433,7 +441,7 @@ export default class ZeroProtocol {
         this.StopWatch();
         this.Cryptostate.StorageKey = forge.random.getBytesSync(16);
 
-        const UsernameHash = sha3_256(Username);
+        const UsernameHash = this.LoginHash(Username);
         const Hash = this.LoginHash(Password);
         var LoginData = {
             'Username': UsernameHash,
